@@ -34,23 +34,23 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   option: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#f2f2f2',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#d4d4d4',
   },
   optionActive: {
-    backgroundColor: '#111827',
-    borderColor: '#111827',
+    backgroundColor: '#000000',
+    borderColor: '#000000',
   },
   label: {
-    color: '#374151',
+    color: '#404040',
     fontSize: 12,
     fontWeight: '700',
   },
   labelActive: {
-    color: '#FFFFFF',
+    color: '#fdfdfd',
   },
 });

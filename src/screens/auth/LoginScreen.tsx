@@ -1,23 +1,27 @@
 import { useRouter } from 'expo-router';
 import { type ComponentRef, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { checkLogin } from '@/services/authService';
+import { appColors } from '@/constants/appColors';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const passwordInput = useRef<ComponentRef<typeof TextInput>>(null);
@@ -27,9 +31,10 @@ export default function LoginScreen() {
   const contentWidth = Math.min(width - insets.left - insets.right, 420);
   const circleSize = contentWidth * 1.15;
 
-  function submit() {
+  async function submit() {
+    if (submitting.current) return;
     if (!username.trim()) {
-      setMessage('Enter your username.');
+      setMessage('Enter your email address.');
       return;
     }
     if (!password) {
@@ -37,14 +42,19 @@ export default function LoginScreen() {
       passwordInput.current?.focus();
       return;
     }
-    if (!checkLogin(username, password)) {
-      setMessage('Incorrect username or password.');
-      return;
-    }
-
-    setPassword('');
+    submitting.current = true;
+    setBusy(true);
     setMessage('');
-    router.dismissTo('/');
+    try {
+      if (!(await signIn(username, password))) {
+        setMessage('Incorrect email address or password.');
+      }
+    } catch {
+      setMessage('Could not sign in. Please try again.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   }
 
   return (
@@ -57,7 +67,6 @@ export default function LoginScreen() {
           { width: circleSize, height: circleSize, left: -circleSize * 0.31, top: -circleSize * 0.07 },
         ]}
       />
-
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView style={styles.safeArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView
@@ -69,12 +78,13 @@ export default function LoginScreen() {
                 paddingHorizontal: contentWidth * 0.1,
               },
             ]}>
-            <Text accessibilityRole="header" style={styles.title}>Login</Text>
+            <Text accessibilityRole="header" style={styles.title}>{busy ? 'Signing in…' : 'Login'}</Text>
             <View style={styles.signUpRow}>
               <Text style={styles.prompt}>Don’t have an account?</Text>
               <Pressable
                 accessibilityRole="button"
                 hitSlop={8}
+                disabled={busy}
                 onPress={() => router.push('/register')}>
                 <Text style={styles.link}>sign up</Text>
               </Pressable>
@@ -83,13 +93,13 @@ export default function LoginScreen() {
             <View style={styles.fields}>
               <View style={styles.field}>
                 <TextInput
-                  accessibilityLabel="Username"
+                  accessibilityLabel="Email address"
                   autoCapitalize="none"
                   autoComplete="username"
                   keyboardType="email-address"
                   autoCorrect={false}
-                  placeholder="Username"
-                  placeholderTextColor="#68636C"
+                  placeholder="Email address"
+                  placeholderTextColor={appColors.muted}
                   returnKeyType="next"
                   submitBehavior="submit"
                   onSubmitEditing={() => passwordInput.current?.focus()}
@@ -113,7 +123,7 @@ export default function LoginScreen() {
                   autoCapitalize="none"
                   autoComplete="current-password"
                   placeholder="Password"
-                  placeholderTextColor="#68636C"
+                  placeholderTextColor={appColors.muted}
                   returnKeyType="go"
                   secureTextEntry
                   onSubmitEditing={submit}
@@ -142,6 +152,7 @@ export default function LoginScreen() {
               ) : null}
               <Pressable
                 accessibilityRole="button"
+                disabled={busy}
                 onPress={submit}
                 style={({ pressed }) => [styles.loginButton, pressed && styles.pressed]}>
                 <Text style={styles.loginLabel}>Login</Text>
@@ -159,18 +170,18 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FFFCFD', overflow: 'hidden' },
+  screen: { flex: 1, backgroundColor: appColors.background, overflow: 'hidden' },
   safeArea: { flex: 1 },
   circle: {
     position: 'absolute',
     borderRadius: '50%',
-    backgroundImage: 'linear-gradient(180deg, #E2C8FB 0%, #F0E5FB 39%, #FFFCFD 76%)',
+    backgroundColor: appColors.soft,
   },
   content: { width: '100%', maxWidth: 420, alignSelf: 'center', paddingBottom: 32 },
-  title: { color: '#111011', fontSize: 34, fontWeight: '700' },
+  title: { color: appColors.text, fontSize: 34, fontWeight: '700' },
   signUpRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 16 },
-  prompt: { color: '#5C575D', fontSize: 15 },
-  link: { color: '#823CB0', fontSize: 15, fontWeight: '700' },
+  prompt: { color: appColors.muted, fontSize: 15 },
+  link: { color: appColors.accent, fontSize: 15, fontWeight: '700' },
   fields: { gap: 16, marginTop: 44, marginRight: 10 },
   field: {
     minHeight: 50,
@@ -179,17 +190,17 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     borderWidth: 1.25,
-    borderColor: '#C9C2CA',
+    borderColor: appColors.border,
     borderRadius: 25,
-    backgroundColor: '#FFFCFD',
+    backgroundColor: appColors.background,
   },
-  input: { flex: 1, minWidth: 0, minHeight: 48, color: '#111011', fontSize: 15, paddingVertical: 10 },
-  forgot: { color: '#7939A6', fontSize: 11, fontWeight: '800' },
+  input: { flex: 1, minWidth: 0, minHeight: 48, color: appColors.text, fontSize: 15, paddingVertical: 10 },
+  forgot: { color: appColors.accent, fontSize: 11, fontWeight: '800' },
   lock: { alignItems: 'center', width: 14 },
-  lockShackle: { width: 8, height: 6, borderWidth: 1.4, borderBottomWidth: 0, borderColor: '#89828A', borderTopLeftRadius: 5, borderTopRightRadius: 5 },
-  lockBody: { width: 13, height: 10, borderWidth: 1.4, borderColor: '#89828A', borderRadius: 3 },
+  lockShackle: { width: 8, height: 6, borderWidth: 1.4, borderBottomWidth: 0, borderColor: appColors.muted, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  lockBody: { width: 13, height: 10, borderWidth: 1.4, borderColor: appColors.muted, borderRadius: 3 },
   actions: { alignItems: 'flex-end', marginTop: 80, marginRight: -20, gap: 12 },
-  message: { color: '#672D86', fontSize: 14, textAlign: 'right' },
+  message: { color: appColors.accent, fontSize: 14, textAlign: 'right' },
   loginButton: {
     minHeight: 50,
     minWidth: 120,
@@ -199,12 +210,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    backgroundColor: '#A25BDE',
-    backgroundImage: 'linear-gradient(90deg, #A760E5, #A166DA)',
+    backgroundColor: appColors.primary,
   },
   pressed: { opacity: 0.8 },
-  loginLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
+  loginLabel: { color: appColors.surface, fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
   loginIcon: { width: 20, height: 22, justifyContent: 'center' },
-  door: { position: 'absolute', right: 0, width: 14, height: 20, borderWidth: 2, borderRadius: 3, borderColor: '#FFFFFF' },
-  arrow: { color: '#FFFFFF', fontSize: 19, fontWeight: '700', lineHeight: 22 },
+  door: { position: 'absolute', right: 0, width: 14, height: 20, borderWidth: 2, borderRadius: 3, borderColor: appColors.surface },
+  arrow: { color: appColors.surface, fontSize: 19, fontWeight: '700', lineHeight: 22 },
 });

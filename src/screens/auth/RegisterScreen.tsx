@@ -1,27 +1,23 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-} from 'react-native';
+import { useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { appColors } from '@/constants/appColors';
 import { registerAccount } from '@/services/authService';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
 
-  function register() {
+  async function register() {
+    if (submitting.current) return;
     const emailAddress = email.trim();
 
     if (!name.trim() || !emailAddress || !password.trim() || !confirmPassword.trim()) {
@@ -39,12 +35,21 @@ export default function RegisterScreen() {
       return;
     }
 
-    if (!registerAccount(name, emailAddress, password)) {
-      setError('An account already exists for this email address.');
-      return;
+    submitting.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      if (await registerAccount(name, emailAddress, password)) {
+        router.dismissTo('/login');
+      } else {
+        setError('An account already exists for this email address.');
+      }
+    } catch {
+      setError('Could not create your account. Please try again.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
-
-    router.dismissTo('/login');
   }
 
   return (
@@ -109,9 +114,10 @@ export default function RegisterScreen() {
 
           <Pressable
             accessibilityRole="button"
+            disabled={busy}
             onPress={register}
             style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-            <Text style={styles.buttonText}>Register</Text>
+            <Text style={styles.buttonText}>{busy ? 'Creating account…' : 'Register'}</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -120,25 +126,25 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FFFCFD' },
+  screen: { flex: 1, backgroundColor: appColors.background },
   keyboard: { flex: 1 },
   content: { width: '100%', maxWidth: 420, alignSelf: 'center', paddingHorizontal: 26, paddingTop: 48, paddingBottom: 32 },
-  title: { color: '#111011', fontSize: 36, fontWeight: '700' },
-  prompt: { color: '#5C575D', fontSize: 15, marginTop: 12, marginBottom: 16 },
-  link: { color: '#823CB0', fontWeight: '700' },
-  label: { color: '#111011', fontSize: 15, fontWeight: '600', marginTop: 16, marginBottom: 6 },
+  title: { color: appColors.text, fontSize: 36, fontWeight: '700' },
+  prompt: { color: appColors.muted, fontSize: 15, marginTop: 12, marginBottom: 16 },
+  link: { color: appColors.accent, fontWeight: '700' },
+  label: { color: appColors.text, fontSize: 15, fontWeight: '600', marginTop: 16, marginBottom: 6 },
   input: {
     minHeight: 50,
     borderWidth: 1.25,
-    borderColor: '#C9C2CA',
+    borderColor: appColors.border,
     borderRadius: 25,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#111011',
+    color: appColors.text,
   },
-  error: { color: '#672D86', fontSize: 14, marginTop: 14 },
-  button: { alignSelf: 'flex-end', backgroundColor: '#9350CC', borderRadius: 25, marginTop: 28, paddingHorizontal: 24, minHeight: 50, justifyContent: 'center' },
+  error: { color: appColors.text, fontSize: 14, marginTop: 14 },
+  button: { alignSelf: 'flex-end', backgroundColor: appColors.primary, borderRadius: 25, marginTop: 28, paddingHorizontal: 24, minHeight: 50, justifyContent: 'center' },
   pressed: { opacity: 0.8 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  buttonText: { color: appColors.surface, fontSize: 15, fontWeight: '700' },
 });

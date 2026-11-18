@@ -20,7 +20,7 @@ export function PrimaryButton({ label, onPress, disabled = false }: PrimaryButto
 
 const styles = StyleSheet.create({
   button: {
-    backgroundColor: '#111827',
+    backgroundColor: '#000000',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   label: {
-    color: '#FFFFFF',
+    color: '#fdfdfd',
     fontSize: 15,
     fontWeight: '700',
   },

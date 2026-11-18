@@ -24,17 +24,17 @@ export function CategoryCard({ label, active = false, count, onPress }: Category
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#f2f2f2',
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#d4d4d4',
   },
   cardActive: {
-    backgroundColor: '#111827',
-    borderColor: '#111827',
+    backgroundColor: '#000000',
+    borderColor: '#000000',
   },
   row: {
     flexDirection: 'row',
@@ -42,26 +42,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   label: {
-    color: '#111827',
+    color: '#000000',
     fontSize: 14,
     fontWeight: '600',
   },
   labelActive: {
-    color: '#FFFFFF',
+    color: '#fdfdfd',
   },
   count: {
     minWidth: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#E5E7EB',
-    color: '#374151',
+    backgroundColor: '#d4d4d4',
+    color: '#404040',
     textAlign: 'center',
     lineHeight: 22,
     fontSize: 11,
     fontWeight: '700',
   },
   countActive: {
-    backgroundColor: '#FFFFFF33',
-    color: '#FFFFFF',
+    backgroundColor: '#fdfdfd33',
+    color: '#fdfdfd',
   },
 });

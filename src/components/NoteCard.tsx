@@ -29,7 +29,7 @@ export function NoteCard({ title, preview, category, updatedAt, pinned, onPress 
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fdfdfd',
     borderRadius: 20,
     padding: 16,
     shadowColor: '#000000',
@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   category: {
-    color: '#6B7280',
+    color: '#595959',
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -56,19 +56,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   title: {
-    color: '#111827',
+    color: '#000000',
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 8,
   },
   preview: {
-    color: '#4B5563',
+    color: '#404040',
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
   },
   meta: {
-    color: '#9CA3AF',
+    color: '#595959',
     fontSize: 12,
     fontWeight: '600',
   },
