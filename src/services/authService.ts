@@ -22,24 +22,24 @@ function deriveVerifier(password: string, salt: Uint8Array) {
 }
 
 //User creating account section here. providing a name,email and password and also verifying section
-export async function registerAccount(name: string, email: string, password: string) {
+export async function registerAccount(name: string, email: string, password: string): Promise<User | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const key = accountKey(normalizedEmail);
-  if (pendingRegistrations.has(key)) return false;
+  if (pendingRegistrations.has(key)) return null;
 
   pendingRegistrations.add(key);
   try {
-    if (await readStored<Account>(key)) return false;
+    if (await readStored<Account>(key)) return null;
 
     const salt = await getRandomBytesAsync(16);
     const verifier = await deriveVerifier(password, salt);
+    const user = { name: name.trim(), email: normalizedEmail };
     await writeStored<Account>(key, {
-      name: name.trim(),
-      email: normalizedEmail,
+      ...user,
       salt: bytesToHex(salt),
       verifier: bytesToHex(verifier),
     });
-    return true;
+    return user;
   } finally {
     pendingRegistrations.delete(key);
   }
@@ -52,6 +52,11 @@ export async function checkLogin(email: string, password: string): Promise<User 
   if (!account) return null;
 
   return await matchesPassword(account, password) ? { name: account.name, email: account.email } : null;
+}
+
+export async function loadAccountProfile(email: string): Promise<User | null> {
+  const account = await readStored<Account>(accountKey(email));
+  return account ? { name: account.name, email: account.email } : null;
 }
 
 async function matchesPassword(account: Account, password: string) {

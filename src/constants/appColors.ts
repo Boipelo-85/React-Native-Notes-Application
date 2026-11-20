@@ -8,4 +8,6 @@ export const appColors = {
   primary: '#000000',
   soft: '#F5F5F5',
   subtle: '#EDEDED',
+  danger: '#AD4249',
+  dangerSurface: '#FBEAEC',
 } as const;

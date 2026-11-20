@@ -1,14 +1,17 @@
-import { Link, useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, } from 'react-native';
+import { Link } from 'expo-router';
+import { type ComponentRef, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { appColors } from '@/constants/appColors';
-import { registerAccount } from '@/services/authService';
+import { useAuth } from '@/context/AuthContext';
 
 export default function RegisterScreen() {
-  const router = useRouter();
+  const { signUp } = useAuth();
   const submitting = useRef(false);
+  const emailInput = useRef<ComponentRef<typeof TextInput>>(null);
+  const passwordInput = useRef<ComponentRef<typeof TextInput>>(null);
+  const confirmInput = useRef<ComponentRef<typeof TextInput>>(null);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,11 +41,13 @@ export default function RegisterScreen() {
     submitting.current = true;
     setBusy(true);
     setError('');
+    Keyboard.dismiss();
     try {
-      if (await registerAccount(name, emailAddress, password)) {
-        router.dismissTo('/login');
-      } else {
+      const result = await signUp(name, emailAddress, password);
+      if (result === 'duplicate') {
         setError('An account already exists for this email address.');
+      } else if (result === 'created') {
+        setError('Your account was created. Tap Log in to sign in.');
       }
     } catch {
       setError('Could not create your account. Please try again.');
@@ -58,36 +63,52 @@ export default function RegisterScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text accessibilityRole="header" style={styles.title}>Register</Text>
           <Text style={styles.prompt}>
-            Already have an account? <Link href="/login" dismissTo style={styles.link}>Log in</Link>
+            Already have an account? {busy
+              ? <Text style={styles.link}>Log in</Text>
+              : <Link href="/login" dismissTo style={styles.link}>Log in</Link>}
           </Text>
 
           <Text style={styles.label}>Name</Text>
           <TextInput
             accessibilityLabel="Name"
             autoComplete="name"
+            editable={!busy}
             onChangeText={setName}
+            onSubmitEditing={() => emailInput.current?.focus()}
+            returnKeyType="next"
+            submitBehavior="submit"
             style={styles.input}
             value={name}
           />
 
           <Text style={styles.label}>Email address</Text>
           <TextInput
+            ref={emailInput}
             accessibilityLabel="Email address"
             autoCapitalize="none"
             autoComplete="email"
             autoCorrect={false}
+            editable={!busy}
             keyboardType="email-address"
             onChangeText={setEmail}
+            onSubmitEditing={() => passwordInput.current?.focus()}
+            returnKeyType="next"
+            submitBehavior="submit"
             style={styles.input}
             value={email}
           />
 
           <Text style={styles.label}>Password</Text>
           <TextInput
+            ref={passwordInput}
             accessibilityLabel="Password"
             autoCapitalize="none"
             autoComplete="new-password"
+            editable={!busy}
             onChangeText={setPassword}
+            onSubmitEditing={() => confirmInput.current?.focus()}
+            returnKeyType="next"
+            submitBehavior="submit"
             secureTextEntry
             style={styles.input}
             value={password}
@@ -95,9 +116,11 @@ export default function RegisterScreen() {
 
           <Text style={styles.label}>Confirm password</Text>
           <TextInput
+            ref={confirmInput}
             accessibilityLabel="Confirm password"
             autoCapitalize="none"
             autoComplete="off"
+            editable={!busy}
             onChangeText={setConfirmPassword}
             onSubmitEditing={register}
             returnKeyType="go"
@@ -114,9 +137,11 @@ export default function RegisterScreen() {
 
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ busy, disabled: busy }}
             disabled={busy}
             onPress={register}
             style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+            {busy && <ActivityIndicator color={appColors.surface} />}
             <Text style={styles.buttonText}>{busy ? 'Creating account…' : 'Register'}</Text>
           </Pressable>
         </ScrollView>
@@ -144,7 +169,7 @@ const styles = StyleSheet.create({
     color: appColors.text,
   },
   error: { color: appColors.text, fontSize: 14, marginTop: 14 },
-  button: { alignSelf: 'flex-end', backgroundColor: appColors.primary, borderRadius: 25, marginTop: 28, paddingHorizontal: 24, minHeight: 50, justifyContent: 'center' },
+  button: { alignSelf: 'flex-end', alignItems: 'center', flexDirection: 'row', gap: 8, backgroundColor: appColors.primary, borderRadius: 25, marginTop: 28, paddingHorizontal: 24, minHeight: 50, justifyContent: 'center' },
   pressed: { opacity: 0.8 },
   buttonText: { color: appColors.surface, fontSize: 15, fontWeight: '700' },
 });

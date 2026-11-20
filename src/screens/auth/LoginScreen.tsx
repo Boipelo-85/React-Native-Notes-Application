@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { type ComponentRef, useRef, useState } from 'react';
 import {
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -45,6 +46,7 @@ export default function LoginScreen() {
     submitting.current = true;
     setBusy(true);
     setMessage('');
+    Keyboard.dismiss();
     try {
       if (!(await signIn(username, password))) {
         setMessage('Incorrect email address or password.');
@@ -98,6 +100,7 @@ export default function LoginScreen() {
                   autoComplete="username"
                   keyboardType="email-address"
                   autoCorrect={false}
+                  editable={!busy}
                   placeholder="Email address"
                   placeholderTextColor={appColors.muted}
                   returnKeyType="next"
@@ -122,6 +125,7 @@ export default function LoginScreen() {
                   accessibilityLabel="Password"
                   autoCapitalize="none"
                   autoComplete="current-password"
+                  editable={!busy}
                   placeholder="Password"
                   placeholderTextColor={appColors.muted}
                   returnKeyType="go"
@@ -152,10 +156,11 @@ export default function LoginScreen() {
               ) : null}
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ busy, disabled: busy }}
                 disabled={busy}
                 onPress={submit}
                 style={({ pressed }) => [styles.loginButton, pressed && styles.pressed]}>
-                <Text style={styles.loginLabel}>Login</Text>
+                <Text style={styles.loginLabel}>{busy ? 'Signing in…' : 'Login'}</Text>
                 <View accessible={false} style={styles.loginIcon}>
                   <View style={styles.door} />
                   <Text style={styles.arrow}>{'\u2192'}</Text>

@@ -1,15 +1,15 @@
 import { randomUUID } from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/EmptyState';
 import { appColors as palette } from '@/constants/appColors';
 import { useAuth } from '@/context/AuthContext';
-import { loadNotebook, saveNotebook } from '@/services/noteService';
+import { loadNotebook, removeCategory, removeNote, saveCategories, saveNote } from '@/services/noteService';
 import type { Note, Notebook } from '@/types/note';
 
-const uncategorized = 'Uncategorized';
+const uncategorized = 'No category';
 
 const formatDate = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
@@ -25,24 +25,25 @@ export default function NotesScreen() {
   return user ? <NotebookScreen key={user.email} email={user.email} signOut={signOut} /> : null;
 }
 
-function NotebookScreen({ email, signOut }: { email: string; signOut: () => void }) {
+function NotebookScreen({ email, signOut }: { email: string; signOut: () => Promise<void> }) {
   const { user, updateProfile } = useAuth();
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const writing = useRef(false);
+  const notesList = useRef<FlatList<Note>>(null);
   const [saveError, setSaveError] = useState('');
-  const { notes = [], tags = [] } = notebook ?? {};
-  const [tag, setTag] = useState<string | null>(null);
+  const { notes = [], categories = [] } = notebook ?? {};
+  const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sortOpen, setSortOpen] = useState(false);
-  const [sortOrder, setSortOrder] = useState<(typeof sortOrders)[number]>('Ascending');
-  const [dialog, setDialog] = useState<'tag' | 'note' | 'edit' | 'delete' | 'profile' | null>(null);
+  const [sortOrder, setSortOrder] = useState<(typeof sortOrders)[number]>('Descending');
+  const [dialog, setDialog] = useState<'category' | 'note' | 'edit' | 'delete' | 'deleteCategory' | 'profile' | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [draft, setDraft] = useState('');
   const [draftBody, setDraftBody] = useState('');
-  const [draftTag, setDraftTag] = useState<string | null>(null);
+  const [draftCategory, setDraftCategory] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -58,16 +59,21 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
   }, [email, loadAttempt]);
 
   const noteForm = dialog === 'note' || dialog === 'edit';
-  const formOpen = noteForm || dialog === 'tag';
+  const formOpen = noteForm || dialog === 'category';
   const profileOpen = dialog === 'profile';
+  const deletingCategory = dialog === 'deleteCategory';
   const changingPassword = !!(currentPassword || newPassword || confirmPassword);
   const profileChanged = profileName.trim() !== user?.name || changingPassword;
   const query = search.trim().toLowerCase();
+  const latestNote = notes.reduce<Note | null>(
+    (latest, note) => !latest || note.date > latest.date ? note : latest,
+    null,
+  );
   const visibleNotes = notes.filter((note) => {
-    const matchesTag = !tag || tag === note.category;
-    const matchesSearch = [note.title, note.category, note.body ?? '']
+    const matchesCategory = !category || category === note.category;
+    const matchesSearch = [note.title, note.category ?? uncategorized, note.body ?? '']
       .some((value) => value.toLowerCase().includes(query));
-    return matchesTag && matchesSearch;
+    return matchesCategory && matchesSearch;
   }).sort((a, b) => {
     const difference = a.date - b.date;
     return sortOrder === 'Ascending' ? difference : -difference;
@@ -82,6 +88,22 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+    }
+  }
+
+  async function endSession() {
+    if (writing.current) return;
+
+    writing.current = true;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await signOut();
+    } catch {
+      setSaveError('Could not sign out. Please try again.');
+    } finally {
+      writing.current = false;
+      setSaving(false);
     }
   }
 
@@ -116,22 +138,22 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
     if (saved) closeDialog();
   }
 
-  function openForm(kind: 'tag' | 'note' | 'edit') {
+  function openForm(kind: 'category' | 'note' | 'edit') {
     const editing = kind === 'edit' ? selectedNote : null;
     setDraft(editing?.title ?? '');
     setDraftBody(editing?.body ?? '');
-    setDraftTag(editing ? editing.category === uncategorized ? null : editing.category : tag);
+    setDraftCategory(editing ? editing.category : category);
     setDialog(kind);
   }
 
-  async function updateNotebook(next: Notebook) {
+  async function updateNotebook(next: Notebook, persist: () => Promise<void>) {
     if (writing.current || !notebook) return false;
 
     writing.current = true;
     setSaving(true);
     setSaveError('');
     try {
-      await saveNotebook(email, next);
+      await persist();
       setNotebook(next);
       return true;
     } catch {
@@ -147,18 +169,34 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
     const title = draft.trim();
     if (!title || writing.current || !notebook) return;
 
-    if (dialog === 'tag') {
-      const existingTag = tags.find((value) => value.toLowerCase() === title.toLowerCase());
-      if (!existingTag && !(await updateNotebook({ notes, tags: [...tags, title] }))) return;
-      setTag(existingTag ?? title);
+    if (dialog === 'category') {
+      const existingCategory = categories.find((value) => value.toLowerCase() === title.toLowerCase());
+      if (!existingCategory) {
+        if (title.toLowerCase() === uncategorized.toLowerCase()) {
+          setSaveError('Choose a different category name.');
+          return;
+        }
+        const nextCategories = [...categories, title];
+        if (!(await updateNotebook({ notes, categories: nextCategories }, () => saveCategories(email, nextCategories)))) return;
+      }
+      setCategory(existingCategory ?? title);
     } else if (noteForm) {
-      const fields = { title, body: draftBody.trim(), category: draftTag ?? uncategorized };
+      const fields = { title, body: draftBody.trim(), category: draftCategory };
       if (dialog === 'edit' && !selectedNote) return;
+      const note = dialog === 'edit' && selectedNote
+        ? { ...selectedNote, ...fields }
+        : { ...fields, id: randomUUID(), date: Math.max(Date.now(), (latestNote?.date ?? 0) + 1), isNew: true };
       const nextNotes = dialog === 'edit'
-        ? notes.map((note) => note.id === selectedNote?.id ? { ...note, ...fields } : note)
-        : [...notes, { ...fields, id: randomUUID(), date: Date.now(), isNew: true }];
-      if (!(await updateNotebook({ notes: nextNotes, tags }))) return;
-      setTag(draftTag);
+        ? notes.map((current) => current.id === note.id ? note : current)
+        : [...notes, note];
+      if (!(await updateNotebook({ notes: nextNotes, categories }, () => saveNote(email, note)))) return;
+      if (dialog === 'edit') {
+        setCategory(draftCategory);
+      } else {
+        setCategory(null);
+        setSortOrder('Descending');
+        notesList.current?.scrollToOffset({ offset: 0, animated: false });
+      }
       setSearch('');
     }
     closeDialog();
@@ -166,7 +204,22 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
 
   async function deleteNote() {
     if (!selectedNote) return;
-    if (await updateNotebook({ notes: notes.filter((note) => note.id !== selectedNote.id), tags })) {
+    const id = selectedNote.id;
+    const next = { notes: notes.filter((note) => note.id !== id), categories };
+    if (await updateNotebook(next, () => removeNote(email, id))) {
+      closeDialog();
+    }
+  }
+
+  async function deleteCategory() {
+    if (!category) return;
+
+    const nextCategories = categories.filter((item) => item !== category);
+    const nextNotes = notes.map((note) => note.category === category ? { ...note, category: null } : note);
+    const detachedNotes = nextNotes.filter((note, index) => note !== notes[index]);
+    const next = { notes: nextNotes, categories: nextCategories };
+    if (await updateNotebook(next, () => removeCategory(email, nextCategories, detachedNotes))) {
+      setCategory(null);
       closeDialog();
     }
   }
@@ -183,7 +236,8 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
             }}>
               <Text style={styles.optionText}>Retry</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" style={styles.option} onPress={signOut}>
+            {saveError ? <Text accessibilityRole="alert" style={styles.dangerText}>{saveError}</Text> : null}
+            <Pressable accessibilityRole="button" disabled={saving} style={styles.option} onPress={endSession}>
               <Text style={styles.optionText}>Sign out</Text>
             </Pressable>
           </>
@@ -242,41 +296,57 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
         </View>
 
         <View style={styles.notesContent}>
-          <View style={styles.tags}>
+          <View style={styles.categories}>
             <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.options}>
-              {[null, ...tags].map((item) => (
-                <Pressable key={item === null ? 'all' : `tag-${item}`} accessibilityRole="button" accessibilityState={{ selected: tag === item }}
-                  style={[styles.tag, tag === item && styles.activeTag]} onPress={() => setTag(item)}>
-                  <Text style={[styles.tagText, tag === item && styles.activeTagText]}>{item ?? 'All tags'}</Text>
+              {[null, ...categories].map((item) => (
+                <Pressable key={item === null ? 'all' : `category-${item}`} accessibilityRole="button" accessibilityState={{ selected: category === item }}
+                  style={[styles.category, category === item && styles.activeCategory]} onPress={() => setCategory(item)}>
+                  <Text style={[styles.categoryText, category === item && styles.activeCategoryText]}>{item ?? 'All categories'}</Text>
                 </Pressable>
               ))}
             </ScrollView>
-            <Pressable accessibilityRole="button" accessibilityLabel="Create tag"
-              style={[styles.tag, styles.createTag]} onPress={() => openForm('tag')}>
-              <Text style={styles.createTagText}>＋ Tag</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Create category"
+              style={[styles.category, styles.createCategory]} onPress={() => openForm('category')}>
+              <Text style={styles.createCategoryText}>＋ Category</Text>
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.list}>
-            {visibleNotes.map((note) => (
-                <View key={note.id} style={[styles.outline, styles.card]}>
+          {category !== null && (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Delete category ${category}`}
+              style={[styles.option, styles.deleteOption, styles.deleteCategoryOption]}
+              onPress={() => {
+                setSortOpen(false);
+                setDialog('deleteCategory');
+              }}>
+              <Text style={[styles.optionText, styles.deleteText]}>Delete category</Text>
+            </Pressable>
+          )}
+
+          <FlatList
+            ref={notesList}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.list}
+            data={visibleNotes}
+            keyExtractor={(note) => note.id}
+            renderItem={({ item: note }) => (
+                <View style={[styles.outline, styles.card]}>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Read ${note.title}`}
                     style={styles.noteDetails} onPress={() => setSelectedNote(note)}>
                     <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
-                    <Text style={styles.metadata}>{formatDate.format(note.date)}  •  {note.category}</Text>
+                    <Text style={styles.metadata}>{formatDate.format(note.date)}  •  {note.category ?? uncategorized}</Text>
                   </Pressable>
-                  {note.isNew && <Text style={styles.newBadge}>NEW</Text>}
+                  {note.isNew && note.id === latestNote?.id && <Text style={styles.newBadge}>NEW</Text>}
                   <Pressable accessibilityRole="button" accessibilityLabel={`Details for ${note.title}`} hitSlop={6}
                     style={styles.more} onPress={() => setSelectedNote(note)}>
                     <Text style={styles.moreIcon}>⋮</Text>
                   </Pressable>
                 </View>
-            ))}
-            {visibleNotes.length === 0 && (
-              <EmptyState title={notes.length ? 'No notes found' : 'No notes yet'}
-                message={notes.length ? 'Try another search or tag.' : 'Add a note to get started.'} />
             )}
-          </ScrollView>
+            ListEmptyComponent={(
+              <EmptyState title={notes.length ? 'No notes found' : 'No notes yet'}
+                message={notes.length ? 'Try another search or category.' : 'Add a note to get started.'} />
+            )}
+          />
 
           <View style={styles.footer}>
             <Pressable accessibilityRole="button" style={styles.primaryButton} onPress={() => openForm('note')}>
@@ -313,16 +383,19 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.dialogPosition}>
             <View style={styles.dialog}>
               <Text accessibilityRole="header" style={styles.dialogTitle}>
-                {dialog === 'edit' ? 'Edit Note' : dialog === 'delete' ? 'Delete Note' : dialog === 'tag' ? 'Create tag' :
+                {deletingCategory ? 'Delete category' : dialog === 'edit' ? 'Edit Note' : dialog === 'delete' ? 'Delete Note' : dialog === 'category' ? 'Create category' :
                   profileOpen ? 'Profile' : selectedNote?.title ?? 'Add Note'}
               </Text>
               {selectedNote && !dialog && (
                 <>
-                  <Text style={styles.metadata}>{selectedNote.category}</Text>
+                  <Text style={styles.metadata}>{selectedNote.category ?? uncategorized}</Text>
                   <Text style={styles.noteTitle}>{selectedNote.body || 'This note has no text.'}</Text>
                 </>
               )}
               {dialog === 'delete' && <Text style={styles.metadata}>Delete “{selectedNote?.title}” permanently?</Text>}
+              {deletingCategory && (
+                <Text style={styles.metadata}>Delete “{category}”? Its notes will move to No category.</Text>
+              )}
               {profileOpen && (
                 <>
                   <Text style={styles.fieldLabel}>Email address</Text>
@@ -348,20 +421,21 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
               )}
               {formOpen && (
                 <>
-                  <TextInput accessibilityLabel={dialog === 'tag' ? 'Tag name' : 'Note title'}
-                    placeholder={dialog === 'tag' ? 'Tag name' : 'Note title'} placeholderTextColor={palette.muted}
+                  <TextInput accessibilityLabel={dialog === 'category' ? 'Category name' : 'Note title'}
+                    placeholder={dialog === 'category' ? 'Category name' : 'Note title'} placeholderTextColor={palette.muted}
                     style={[styles.outline, styles.dialogInput]} value={draft} onChangeText={setDraft}
-                    editable={!saving} onSubmitEditing={dialog === 'tag' ? save : undefined} />
+                    editable={!saving} onSubmitEditing={dialog === 'category' ? save : undefined} />
                   {noteForm && (
                     <>
                       <TextInput accessibilityLabel="Note text" placeholder="Write a note..." placeholderTextColor={palette.muted}
                         style={[styles.outline, styles.dialogInput, styles.bodyInput]} value={draftBody}
                         onChangeText={setDraftBody} editable={!saving} multiline />
+                      <Text style={styles.fieldLabel}>Category</Text>
                       <View style={[styles.options, styles.wrapped]}>
-                        {tags.map((item) => (
-                          <Pressable key={item} accessibilityRole="button" disabled={saving} accessibilityState={{ selected: draftTag === item }}
-                            style={[styles.tag, draftTag === item && styles.activeTag]} onPress={() => setDraftTag(draftTag === item ? null : item)}>
-                            <Text style={[styles.tagText, draftTag === item && styles.activeTagText]}>{item}</Text>
+                        {categories.map((item) => (
+                          <Pressable key={item} accessibilityRole="button" disabled={saving} accessibilityState={{ selected: draftCategory === item }}
+                            style={[styles.category, draftCategory === item && styles.activeCategory]} onPress={() => setDraftCategory(draftCategory === item ? null : item)}>
+                            <Text style={[styles.categoryText, draftCategory === item && styles.activeCategoryText]}>{item}</Text>
                           </Pressable>
                         ))}
                       </View>
@@ -372,21 +446,21 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
               {saveError ? <Text accessibilityRole="alert" style={styles.dangerText}>{saveError}</Text> : null}
               <View style={styles.dialogActions}>
                 <Pressable accessibilityRole="button" disabled={saving} style={styles.option} onPress={closeDialog}>
-                  <Text style={styles.optionText}>{formOpen || dialog === 'delete' ? 'Cancel' : 'Close'}</Text>
+                  <Text style={styles.optionText}>{formOpen || dialog === 'delete' || deletingCategory ? 'Cancel' : 'Close'}</Text>
                 </Pressable>
                 {selectedNote && !dialog && (
                   <>
                     <Pressable accessibilityRole="button" style={styles.option} onPress={() => openForm('edit')}>
                       <Text style={styles.optionText}>Edit</Text>
                     </Pressable>
-                    <Pressable accessibilityRole="button" style={styles.option} onPress={() => setDialog('delete')}>
-                      <Text style={[styles.optionText, styles.dangerText]}>Delete</Text>
+                    <Pressable accessibilityRole="button" style={[styles.option, styles.deleteOption]} onPress={() => setDialog('delete')}>
+                      <Text style={[styles.optionText, styles.deleteText]}>Delete</Text>
                     </Pressable>
                   </>
                 )}
                 {profileOpen && (
                   <>
-                    <Pressable accessibilityRole="button" disabled={saving} style={styles.option} onPress={signOut}>
+                    <Pressable accessibilityRole="button" disabled={saving} style={styles.option} onPress={endSession}>
                       <Text style={styles.optionText}>Sign out</Text>
                     </Pressable>
                     <Pressable accessibilityRole="button" disabled={saving || !profileChanged || !profileName.trim()}
@@ -402,9 +476,10 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
                     <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Save'}</Text>
                   </Pressable>
                 )}
-                {dialog === 'delete' && (
+                {(dialog === 'delete' || deletingCategory) && (
                   <Pressable accessibilityRole="button" disabled={saving}
-                    style={styles.primaryButton} onPress={deleteNote}>
+                    style={[styles.primaryButton, styles.confirmDelete, saving && styles.disabled]}
+                    onPress={deletingCategory ? deleteCategory : deleteNote}>
                     <Text style={styles.primaryText}>{saving ? 'Deleting…' : 'Confirm delete'}</Text>
                   </Pressable>
                 )}
@@ -420,6 +495,10 @@ function NotebookScreen({ email, signOut }: { email: string; signOut: () => void
 const styles = StyleSheet.create({
   loading: { alignItems: 'center', justifyContent: 'center', gap: 12 },
   dangerText: { color: palette.text },
+  deleteOption: { backgroundColor: palette.dangerSurface },
+  deleteCategoryOption: { alignSelf: 'flex-end', marginBottom: 8 },
+  deleteText: { color: palette.danger },
+  confirmDelete: { backgroundColor: palette.danger },
   screen: { flex: 1, backgroundColor: palette.background },
   page: { flex: 1, width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 20 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, marginBottom: 14 },
@@ -436,7 +515,7 @@ const styles = StyleSheet.create({
   searchIcon: { width: 16, height: 16 },
   searchCircle: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.4, borderColor: palette.muted },
   searchHandle: { position: 'absolute', width: 6, height: 1.4, left: 9, top: 11, backgroundColor: palette.muted, transform: [{ rotate: '45deg' }] },
-  searchInput: { flex: 1, minWidth: 0, paddingVertical: 8, fontSize: 14, color: palette.text },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 8, fontSize: 14, color: palette.text, outlineWidth: 0 },
   sortButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11, gap: 7 },
   sortText: { fontSize: 13, color: palette.accent, fontWeight: '600' },
   notesContent: { flex: 1 },
@@ -449,13 +528,13 @@ const styles = StyleSheet.create({
   selectedOption: { backgroundColor: palette.primary },
   selectedOptionText: { color: palette.surface },
   optionText: { color: palette.accent, fontSize: 13, fontWeight: '600' },
-  tags: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 12, marginBottom: 13 },
-  tag: { backgroundColor: palette.soft, borderRadius: 7, paddingVertical: 7, paddingHorizontal: 9 },
-  createTag: { backgroundColor: palette.subtle },
-  createTagText: { color: palette.accent, fontSize: 13, fontWeight: '600' },
-  tagText: { color: palette.muted, fontSize: 13, fontWeight: '600' },
-  activeTag: { backgroundColor: palette.accent },
-  activeTagText: { color: palette.surface },
+  categories: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 12, marginBottom: 13 },
+  category: { backgroundColor: palette.soft, borderRadius: 7, paddingVertical: 7, paddingHorizontal: 9 },
+  createCategory: { backgroundColor: palette.subtle },
+  createCategoryText: { color: palette.accent, fontSize: 13, fontWeight: '600' },
+  categoryText: { color: palette.muted, fontSize: 13, fontWeight: '600' },
+  activeCategory: { backgroundColor: palette.accent },
+  activeCategoryText: { color: palette.surface },
   list: { gap: 11, paddingTop: 5, paddingBottom: 12 },
   card: { flexDirection: 'row', alignItems: 'center', minHeight: 73, padding: 9, gap: 12 },
   noteDetails: { flex: 1, gap: 6 },

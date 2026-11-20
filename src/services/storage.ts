@@ -10,3 +10,7 @@ export async function readStored<T>(key: string): Promise<T | null> {
 export function writeStored<T>(key: string, value: T) {
   return AsyncStorage.setItem(key, JSON.stringify(value));
 }
+
+export function removeStored(key: string) {
+  return AsyncStorage.removeItem(key);
+}
