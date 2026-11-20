@@ -17,7 +17,7 @@ function AppStack() {
   return (
 
     //Expo Navigation section here Stack
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />

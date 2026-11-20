@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { Note, Notebook } from '../types/note';
+import { noteCategories, type Note, type Notebook } from '../types/note';
 import { readStored, writeStored } from './storage';
 
-type LegacyNotebook = { notes: Note[]; tags: string[] };
+type StoredNote = Omit<Note, 'category'> & { category: string | null };
+type LegacyNotebook = { notes: StoredNote[] };
 const loads = new Map<string, Promise<Notebook>>();
 
 function notebookKey(email: string) {
@@ -23,33 +24,28 @@ export function loadNotebook(email: string): Promise<Notebook> {
   return load;
 }
 
-async function readNotebook(email: string): Promise<Notebook> {
-  const categories = await readStored<string[]>(`${notebookKey(email)}/categories`);
-  if (!categories) {
-    const legacy = await readStored<LegacyNotebook>(notebookKey(email));
-    if (!legacy) {
-      const defaults = ['Design', 'Marketing', 'Work'];
-      await saveCategories(email, defaults);
-      return { notes: [], categories: defaults };
-    }
+function normalizeNote(note: StoredNote): Note {
+  const category = note.category?.trim().toLowerCase();
+  return { ...note, category: noteCategories.find((item) => item.toLowerCase() === category) ?? null };
+}
 
-    // Older records used the same value for missing categories and an explicit
-    // category with this name. Keep existing assignments if that category exists.
-    const explicitUncategorized = legacy.tags.includes('Uncategorized');
-    const notes = legacy.notes.map((note) => ({
-      ...note,
-      category: !explicitUncategorized && note.category === 'Uncategorized' ? null : note.category,
-    }));
-    if (notes.length) {
-      await AsyncStorage.multiSet(notes.map((note) => [
-        notePrefix(email) + encodeURIComponent(note.id),
-        JSON.stringify(note),
-      ]));
+async function readNotebook(email: string): Promise<Notebook> {
+  // The old category key also marks completion of the legacy notebook migration.
+  const categoryKey = notebookKey(email) + '/categories';
+  if (!(await readStored<unknown>(categoryKey))) {
+    const legacy = await readStored<LegacyNotebook>(notebookKey(email));
+    if (legacy) {
+      const notes = legacy.notes.map(normalizeNote);
+      if (notes.length) {
+        await AsyncStorage.multiSet(notes.map((note) => [
+          notePrefix(email) + encodeURIComponent(note.id),
+          JSON.stringify(note),
+        ]));
+      }
+      await writeStored(categoryKey, true);
+      await AsyncStorage.removeItem(notebookKey(email));
+      return { notes };
     }
-    // Publish the new format only after all notes have been copied.
-    await saveCategories(email, legacy.tags);
-    await AsyncStorage.removeItem(notebookKey(email));
-    return { notes, categories: legacy.tags };
   }
 
   const storageKeys = await AsyncStorage.getAllKeys();
@@ -58,26 +54,12 @@ async function readNotebook(email: string): Promise<Notebook> {
   }
   const keys = storageKeys.filter((key) => key.startsWith(notePrefix(email)));
   const records = keys.length ? await AsyncStorage.multiGet(keys) : [];
-  const notes = records.flatMap(([, value]) => value === null ? [] : [JSON.parse(value) as Note]);
-  return { notes, categories };
-}
-
-export function saveCategories(email: string, categories: string[]) {
-  return writeStored(`${notebookKey(email)}/categories`, categories);
+  const notes = records.flatMap(([, value]) => value === null ? [] : [normalizeNote(JSON.parse(value) as StoredNote)]);
+  return { notes };
 }
 
 export function saveNote(email: string, note: Note) {
   return writeStored(notePrefix(email) + encodeURIComponent(note.id), note);
-}
-
-export async function removeCategory(email: string, categories: string[], detachedNotes: Note[]) {
-  if (detachedNotes.length) {
-    await AsyncStorage.multiSet(detachedNotes.map((note) => [
-      notePrefix(email) + encodeURIComponent(note.id),
-      JSON.stringify(note),
-    ]));
-  }
-  await saveCategories(email, categories);
 }
 
 export function removeNote(email: string, id: string) {
